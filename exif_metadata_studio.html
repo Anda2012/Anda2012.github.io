@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EXIF & Metadata Studio</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #121317;
+    --panel: #191b21;
+    --panel-2: #1f222a;
+    --line: #2a2d36;
+    --text: #e9e7e2;
+    --muted: #8c909b;
+    --muted-2: #63666f;
+    --accent: #e8a33d;
+    --accent-dim: #6b5228;
+    --cyan: #5ec8d8;
+    --cyan-dim: #274347;
+    --danger: #d8635e;
+    --ok: #7fbf8f;
+    --radius: 10px;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --sans: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection{ background: var(--accent-dim); color: var(--text); }
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-track{ background: transparent; }
+  ::-webkit-scrollbar-thumb{ background: var(--line); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover{ background: var(--muted-2); }
+
+  button{ font-family: inherit; }
+  a{ color: var(--cyan); }
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top:0;
+    background: rgba(18,19,23,0.92);
+    backdrop-filter: blur(8px);
+    z-index: 50;
+  }
+  .brand{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+  }
+  .brand .mark{
+    width: 26px; height:26px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent), #c97a1f);
+    display:flex; align-items:center; justify-content:center;
+    font-size: 14px;
+    color:#1a1408;
+    font-weight:700;
+  }
+  .brand h1{
+    font-size: 16px;
+    font-weight:600;
+    margin:0;
+    letter-spacing: 0.2px;
+  }
+  .brand .sub{
+    font-family: var(--mono);
+    font-size:11px;
+    color: var(--muted-2);
+  }
+  .topbar-actions{ display:flex; gap:8px; align-items:center; }
+
+  .btn{
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor:pointer;
+    font-size: 13px;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    transition: border-color .15s ease, background .15s ease, transform .05s ease;
+  }
+  .btn:hover{ border-color: var(--muted-2); background:#23262f; }
+  .btn:active{ transform: scale(0.98); }
+  .btn.primary{
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #1a1408;
+    font-weight: 600;
+  }
+  .btn.primary:hover{ background:#f0ad4f; }
+  .btn.ghost{ background:transparent; }
+  .btn.small{ padding:5px 10px; font-size:12px; }
+  .btn.danger-outline{ border-color: #4a2e2c; color: var(--danger); }
+  .btn.danger-outline:hover{ background:#241716; }
+  .btn:disabled{ opacity:0.4; cursor:not-allowed; }
+  .btn svg{ width:14px; height:14px; flex-shrink:0; }
+
+  /* ---------- Layout ---------- */
+  .app{
+    display:none;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 22px;
+    gap: 22px;
+    isolation: isolate;
+  }
+  .app.active{ display:flex; }
+
+  @media (min-width: 941px){
+    .app{ flex-direction: row; align-items: flex-start; }
+    .sidebar{ display: flex; flex-direction: column; gap: 16px; flex: 0 0 340px; max-width: 340px; }
+    .main{ flex: 1 1 0%; min-width: 0; }
+  }
+
+  @media (max-width: 940px){
+    .app{ flex-direction: column; padding: 14px; gap: 16px; }
+    .main{ order: 1; }
+    .sidebar{ order: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .sidebar .preview-wrap{ grid-column: 1 / -1; }
+    .preview-img-box{ aspect-ratio: 21 / 9; }
+    .spec-row{ flex-direction: column; gap: 2px; padding: 8px 0; }
+    .spec-row .value{ text-align:left; }
+    #map{ height: 160px; }
+  }
+
+  @media (max-width: 520px){
+    .sidebar{ grid-template-columns: 1fr; }
+  }
+
+  .sidebar, .main{ position: relative; z-index: 1; width: 100%; }
+
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ---------- Drop zone (landing) ---------- */
+  .landing{
+    max-width: 760px;
+    margin: 8vh auto 0;
+    padding: 0 22px 40px;
+    text-align:center;
+  }
+  .landing h2{
+    font-size: 30px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    letter-spacing: -0.3px;
+  }
+  .landing p.lead{
+    color: var(--muted);
+    font-size: 14.5px;
+    margin: 0 0 34px;
+    line-height:1.6;
+  }
+  .dropzone{
+    border: 1.5px dashed var(--line);
+    border-radius: 14px;
+    padding: 56px 30px;
+    background: var(--panel);
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+    position:relative;
+  }
+  .dropzone.drag{
+    border-color: var(--accent);
+    background: #1c1811;
+  }
+  .dropzone .icon{
+    width:46px; height:46px;
+    margin: 0 auto 18px;
+    color: var(--accent);
+    opacity:0.9;
+  }
+  .dropzone h3{
+    margin: 0 0 6px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .dropzone p{
+    margin:0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .dropzone .formats{
+    margin-top:18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted-2);
+    letter-spacing:0.5px;
+  }
+  .landing-actions{
+    margin-top: 22px;
+    display:flex;
+    gap:10px;
+    justify-content:center;
+    flex-wrap:wrap;
+  }
+  .paste-hint{
+    margin-top:16px;
+    font-size:12px;
+    color: var(--muted-2);
+  }
+  .paste-hint kbd{
+    background: var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:1px 6px;
+    font-family: var(--mono);
+    font-size:11px;
+  }
+  #fileInput{ display:none; }
+
+  /* ---------- Sidebar ---------- */
+  .preview-wrap{ padding: 14px; }
+  .preview-img-box{
+    border-radius: 8px;
+    overflow:hidden;
+    background: #0c0d10;
+    border:1px solid var(--line);
+    aspect-ratio: 4/3;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .preview-img-box img{
+    max-width:100%; max-height:100%;
+    object-fit: contain;
+  }
+  .file-meta{
+    margin-top: 12px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+  }
+  .file-meta .fname{
+    font-size: 13px;
+    font-weight:600;
+    word-break: break-all;
+  }
+  .file-meta .fdetail{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .panel-title{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 12px 14px;
+    border-bottom:1px solid var(--line);
+  }
+  .panel-title h3{
+    margin:0;
+    font-size: 12.5px;
+    text-transform: none;
+    font-weight: 600;
+    color: var(--text);
+    display:flex;
+    align-items:center;
+    gap:7px;
+  }
+  .panel-title h3 .dot{
+    width:6px;height:6px;border-radius:50%;
+    background: var(--accent);
+  }
+
+  .quick-specs{ padding: 4px 14px 14px; }
+  .spec-row{
+    display:flex;
+    justify-content:space-between;
+    padding: 9px 0;
+    border-bottom: 1px solid #23252d;
+    font-size: 12.5px;
+    gap: 10px;
+  }
+  .spec-row:last-child{ border-bottom:none; }
+  .spec-row .label{ color: var(--muted); flex-shrink:0; }
+  .spec-row .value{
+    font-family: var(--mono);
+    color: var(--text);
+    text-align:right;
+    word-break: break-word;
+  }
+  .spec-row .value.empty{ color: var(--muted-2); }
+
+  .map-wrap{ padding: 0; overflow:hidden; }
+  #map{ height: 220px; width:100%; border-radius: var(--radius) var(--radius) 0 0; }
+  .map-links{
+    display:flex;
+    gap:8px;
+    padding: 12px 14px;
+    flex-wrap:wrap;
+  }
+  .map-links a{
+    font-size:12px;
+    text-decoration:none;
+    color: var(--cyan);
+    border:1px solid var(--cyan-dim);
+    padding:5px 10px;
+    border-radius: 7px;
+  }
+  .map-links a:hover{ background: var(--cyan-dim); }
+  .no-gps{
+    padding: 24px 14px;
+    text-align:center;
+    color: var(--muted-2);
+    font-size:12.5px;
+  }
+  .no-gps svg{ width:26px; height:26px; margin-bottom:8px; opacity:0.5; }
+
+  /* ---------- Main area ---------- */
+  .main{ display:flex; flex-direction:column; gap:16px; min-width:0; }
+
+  .tabs{
+    display:flex;
+    gap:4px;
+    border-bottom: 1px solid var(--line);
+    padding: 0 4px;
+    overflow-x:auto;
+  }
+  .tab-btn{
+    background:none;
+    border:none;
+    color: var(--muted);
+    padding: 12px 16px;
+    font-size: 13px;
+    cursor:pointer;
+    border-bottom: 2px solid transparent;
+    font-family: var(--sans);
+    font-weight:500;
+    white-space:nowrap;
+  }
+  .tab-btn:hover{ color: var(--text); }
+  .tab-btn.active{
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  .tab-panel{ display:none; }
+  .tab-panel.active{ display:block; }
+
+  /* Overview grid */
+  .overview-grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow:hidden;
+  }
+  .stat-card{
+    background: var(--panel);
+    padding: 16px 16px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .stat-card .stat-label{
+    font-size: 11px;
+    color: var(--muted-2);
+    font-family: var(--mono);
+  }
+  .stat-card .stat-value{
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+    word-break: break-word;
+  }
+  .stat-card .stat-value.empty{ color: var(--muted-2); font-weight:400; font-size:14px; }
+
+  .section-heading{
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 22px 0 10px 2px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .section-heading .dot{ width:6px;height:6px;border-radius:50%; background:var(--cyan); }
+
+  /* Search + table */
+  .search-row{
+    display:flex;
+    gap:10px;
+    padding: 14px;
+    border-bottom: 1px solid var(--line);
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .search-input{
+    flex:1;
+    min-width:180px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+  .search-input:focus{ outline:none; border-color: var(--accent); }
+
+  table.tags-table{
+    width:100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  table.tags-table thead th{
+    text-align:left;
+    padding: 9px 14px;
+    color: var(--muted-2);
+    font-weight:500;
+    font-family: var(--mono);
+    font-size: 11px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+  }
+  table.tags-table tbody tr{ border-bottom: 1px solid #22242c; }
+  table.tags-table tbody tr:hover{ background: var(--panel-2); }
+  table.tags-table td{
+    padding: 8px 14px;
+    vertical-align: top;
+  }
+  table.tags-table td.key{
+    font-family: var(--mono);
+    color: var(--cyan);
+    white-space:nowrap;
+  }
+  table.tags-table td.group{
+    color: var(--muted-2);
+    font-family: var(--mono);
+    font-size:11px;
+    white-space:nowrap;
+  }
+  table.tags-table td.val{
+    color: var(--text);
+    word-break: break-word;
+    max-width: 420px;
+  }
+  .table-scroll{ max-height: 560px; overflow:auto; }
+  .empty-state{
+    padding: 40px 20px;
+    text-align:center;
+    color: var(--muted-2);
+    font-size: 13px;
+  }
+
+  /* Raw data (JSON/CSV) */
+  .raw-toolbar{
+    display:flex;
+    gap:8px;
+    padding: 12px 14px;
+    border-bottom:1px solid var(--line);
+  }
+  .raw-toolbar .spacer{ flex:1; }
+  .format-toggle{ display:flex; gap:2px; background: var(--panel-2); border-radius:8px; padding:3px; }
+  .format-toggle button{
+    background:none; border:none; color: var(--muted);
+    padding: 6px 12px; border-radius:6px; font-size:12px; cursor:pointer;
+    font-family: var(--sans);
+  }
+  .format-toggle button.active{ background: var(--accent); color:#1a1408; font-weight:600; }
+  pre.raw-view{
+    margin:0;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text);
+    max-height: 560px;
+    overflow:auto;
+    white-space: pre;
+  }
+  .json-key{ color: var(--cyan); }
+  .json-str{ color: #b8d78a; }
+  .json-num{ color: var(--accent); }
+  .json-bool{ color: #d88ad0; }
+  .json-null{ color: var(--muted-2); }
+
+  /* Caption generator */
+  .caption-box{ padding: 18px; }
+  .caption-style-row{
+    display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;
+  }
+  .chip{
+    background: var(--panel-2);
+    border:1px solid var(--line);
+    color: var(--muted);
+    padding: 7px 13px;
+    border-radius: 20px;
+    font-size:12px;
+    cursor:pointer;
+  }
+  .chip.active{ background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .caption-output{
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height:1.7;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 70px;
+  }
+  .caption-actions{ display:flex; gap:8px; margin-top:12px; }
+
+  /* Privacy stripper */
+  .strip-box{ padding: 18px; }
+  .strip-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
+  @media (max-width:700px){ .strip-grid{ grid-template-columns:1fr; } }
+  .strip-col h4{ font-size:12.5px; color: var(--muted); margin: 0 0 10px; font-weight:600; }
+  .strip-compare-img{
+    border-radius:8px; overflow:hidden; border:1px solid var(--line);
+    background:#0c0d10; aspect-ratio:4/3; display:flex; align-items:center; justify-content:center;
+  }
+  .strip-compare-img img{ max-width:100%; max-height:100%; object-fit:contain; }
+  .strip-taglist{
+    margin-top:10px;
+    font-family: var(--mono);
+    font-size:11px;
+    color: var(--muted-2);
+    line-height:1.7;
+  }
+  .strip-taglist .removed{ color: var(--danger); text-decoration: line-through; }
+  .strip-controls{
+    display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    padding-top: 18px; margin-top: 18px; border-top:1px solid var(--line);
+  }
+  .strip-controls select{
+    background: var(--panel-2); color:var(--text); border:1px solid var(--line);
+    padding: 8px 10px; border-radius:8px; font-size:13px; font-family: var(--sans);
+  }
+  .quality-row{ display:flex; align-items:center; gap:8px; font-size:12px; color: var(--muted); }
+  .quality-row input[type="range"]{ width:120px; accent-color: var(--accent); }
+  .strip-status{
+    margin-top:14px;
+    font-size:12.5px;
+    color: var(--ok);
+    display:none;
+  }
+  .strip-status.show{ display:block; }
+
+  .toast{
+    position:fixed;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 11px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    opacity:0;
+    pointer-events:none;
+    transition: opacity .2s ease, transform .2s ease;
+    z-index: 200;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .toast.show{ opacity:1; transform: translateX(-50%) translateY(0); pointer-events:auto; }
+  .toast .dot{ width:7px;height:7px;border-radius:50%; background: var(--ok); }
+
+  a:focus-visible, button:focus-visible, input:focus-visible, .dropzone:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <div class="mark">Ex</div>
+    <div>
+      <h1>EXIF &amp; Metadata Studio</h1>
+    </div>
+    <span class="sub" id="topbarSub">no image loaded</span>
+  </div>
+  <div class="topbar-actions" id="topbarActions" style="display:none;">
+    <button class="btn ghost small" id="loadAnotherBtn">Load another image</button>
+  </div>
+</div>
+
+<!-- LANDING / DROPZONE -->
+<div class="landing" id="landing">
+  <h2>Inspect every pixel's paper trail</h2>
+  <p class="lead">Drop a photo to read its embedded EXIF, GPS, IPTC and XMP data &mdash; then export it, caption it, or strip it clean before you share it.</p>
+
+  <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload an image">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M12 16V4M12 4L7 9M12 4l5 5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M20 16.5v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h3>Drag & drop an image here</h3>
+    <p>or click to browse your files</p>
+    <div class="formats">JPEG &middot; PNG &middot; WEBP &middot; TIFF &middot; HEIC</div>
+  </div>
+
+  <input type="file" id="fileInput" accept="image/*">
+
+  <div class="landing-actions">
+    <button class="btn primary" id="browseBtn">Choose a file</button>
+  </div>
+  <div class="paste-hint">or press <kbd>Ctrl</kbd>+<kbd>V</kbd> / <kbd>&#8984;</kbd>+<kbd>V</kbd> to paste an image from your clipboard</div>
+</div>
+
+<!-- APP -->
+<div class="app" id="app">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <div class="panel preview-wrap">
+      <div class="preview-img-box"><img id="previewImg" alt="Uploaded image preview"></div>
+      <div class="file-meta">
+        <div class="fname" id="fileName">&mdash;</div>
+        <div class="fdetail" id="fileDims">&mdash;</div>
+        <div class="fdetail" id="fileSize">&mdash;</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><h3><span class="dot"></span>Quick specs</h3></div>
+      <div class="quick-specs" id="quickSpecs"></div>
+    </div>
+
+    <div class="panel map-wrap">
+      <div class="panel-title"><h3><span class="dot" style="background:var(--cyan)"></span>Location</h3></div>
+      <div id="mapContainer">
+        <div class="no-gps" id="noGps">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 21s-7-6.2-7-11.2A7 7 0 0 1 19 9.8C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.2"/></svg><br>
+          No GPS data embedded in this image
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <div class="tabs" role="tablist">
+      <button class="tab-btn active" data-tab="overview" role="tab">Overview</button>
+      <button class="tab-btn" data-tab="tags" role="tab">Full Tags Inspector</button>
+      <button class="tab-btn" data-tab="raw" role="tab">Raw Data</button>
+      <button class="tab-btn" data-tab="caption" role="tab">Caption Generator</button>
+      <button class="tab-btn" data-tab="strip" role="tab">Privacy Stripper</button>
+    </div>
+
+    <!-- OVERVIEW -->
+    <div class="tab-panel active" id="tab-overview">
+      <div class="section-heading"><span class="dot"></span>Camera &amp; capture</div>
+      <div class="overview-grid" id="overviewGrid"></div>
+    </div>
+
+    <!-- FULL TAGS -->
+    <div class="tab-panel" id="tab-tags">
+      <div class="panel">
+        <div class="search-row">
+          <input type="text" class="search-input" id="tagSearch" placeholder="Search tags, groups, or values&hellip;">
+          <span class="count" id="tagCount" style="font-family:var(--mono); font-size:11px; color:var(--muted-2);"></span>
+        </div>
+        <div class="table-scroll">
+          <table class="tags-table">
+            <thead><tr><th style="width:120px;">Group</th><th style="width:220px;">Tag</th><th>Value</th></tr></thead>
+            <tbody id="tagsTableBody"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="tagsEmpty" style="display:none;">No tags matched your search.</div>
+      </div>
+    </div>
+
+    <!-- RAW DATA -->
+    <div class="tab-panel" id="tab-raw">
+      <div class="panel">
+        <div class="raw-toolbar">
+          <div class="format-toggle">
+            <button class="active" data-format="json" id="fmtJsonBtn">JSON</button>
+            <button data-format="csv" id="fmtCsvBtn">CSV</button>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn small" id="copyRawBtn">Copy</button>
+          <button class="btn small" id="downloadRawBtn">Download</button>
+        </div>
+        <pre class="raw-view" id="rawView"></pre>
+      </div>
+    </div>
+
+    <!-- CAPTION -->
+    <div class="tab-panel" id="tab-caption">
+      <div class="panel caption-box">
+        <div class="caption-style-row" id="captionStyles">
+          <button class="chip active" data-style="technical">Technical</button>
+          <button class="chip" data-style="minimal">Minimal</button>
+          <button class="chip" data-style="story">Story</button>
+          <button class="chip" data-style="hashtag">Hashtag-ready</button>
+        </div>
+        <div class="caption-output" id="captionOutput">&mdash;</div>
+        <div class="caption-actions">
+          <button class="btn primary small" id="copyCaptionBtn">Copy caption</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRIVACY STRIPPER -->
+    <div class="tab-panel" id="tab-strip">
+      <div class="panel strip-box">
+        <div class="strip-grid">
+          <div class="strip-col">
+            <h4>Original &mdash; with metadata</h4>
+            <div class="strip-compare-img"><img id="stripOrigImg" alt="Original image"></div>
+            <div class="strip-taglist" id="stripTagList"></div>
+          </div>
+          <div class="strip-col">
+            <h4>Clean copy &mdash; metadata removed</h4>
+            <div class="strip-compare-img"><img id="stripCleanImg" alt="Cleaned image preview"></div>
+            <div class="strip-taglist" style="color:var(--ok);">EXIF, GPS, IPTC &amp; XMP data will be fully stripped from the exported file.</div>
+          </div>
+        </div>
+        <div class="strip-controls">
+          <label style="font-size:12px; color:var(--muted);">Export as
+            <select id="stripFormat">
+              <option value="image/jpeg">JPEG</option>
+              <option value="image/png">PNG</option>
+              <option value="image/webp">WebP</option>
+            </select>
+          </label>
+          <div class="quality-row" id="qualityRow">
+            <span>Quality</span>
+            <input type="range" id="stripQuality" min="0.4" max="1" step="0.05" value="0.92">
+            <span id="qualityVal">92%</span>
+          </div>
+          <button class="btn primary" id="stripDownloadBtn">Download clean image</button>
+        </div>
+        <div class="strip-status" id="stripStatus"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"><span class="dot"></span><span id="toastMsg">Copied</span></div>
+
+<script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- State ----------
+  let currentFile = null;
+  let currentDims = null;
+  let currentObjectUrl = null;
+  let exifData = null;
+  let flatTags = [];
+  let allTagsForExport = {};
+  let gps = null;
+  let leafletMap = null;
+  let cleanBlobUrl = null;
+
+  // ---------- Utility ----------
+  const $ = (sel, ctx) => (ctx||document).querySelector(sel);
+  const $$ = (sel, ctx) => Array.from((ctx||document).querySelectorAll(sel));
+
+  function showToast(msg){
+    const t = $('#toast');
+    $('#toastMsg').textContent = msg;
+    t.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(()=> t.classList.remove('show'), 2200);
+  }
+
+  function fmtBytes(bytes){
+    if(bytes == null) return '—';
+    const units = ['B','KB','MB','GB'];
+    let i = 0, n = bytes;
+    while(n >= 1024 && i < units.length-1){ n/=1024; i++; }
+    return n.toFixed(n < 10 && i>0 ? 1 : 0) + ' ' + units[i];
+  }
+
+  function safe(v, fallback){
+    if(v === undefined || v === null || v === '' ) return fallback === undefined ? null : fallback;
+    return v;
+  }
+
+  function fmtShutter(exposureTime){
+    if(exposureTime == null) return null;
+    if(exposureTime >= 1) return exposureTime.toFixed(exposureTime % 1 === 0 ? 0 : 1) + 's';
+    const denom = Math.round(1/exposureTime);
+    return '1/' + denom + 's';
+  }
+
+  function fmtAperture(fnum){
+    if(fnum == null) return null;
+    return 'f/' + (Math.round(fnum*10)/10);
+  }
+
+  function fmtFocal(mm){
+    if(mm == null) return null;
+    return Math.round(mm*10)/10 + 'mm';
+  }
+
+  function fmtExposureBias(ev) {
+    if (ev == null || isNaN(ev)) return null;
+    if (ev === 0) return '0 EV';
+
+    const sign = ev > 0 ? '+' : '-';
+    const abs = Math.abs(ev);
+    const integerPart = Math.floor(abs);
+    const fracPart = abs - integerPart;
+
+    const fractionMap = [
+      { val: 0.3333, str: '1/3' },
+      { val: 0.5,    str: '1/2' },
+      { val: 0.6667, str: '2/3' }
+    ];
+
+    let closestFrac = '';
+    for (const item of fractionMap) {
+      if (Math.abs(fracPart - item.val) < 0.05) {
+        closestFrac = item.str;
+        break;
+      }
+    }
+
+    let result = '';
+    if (closestFrac) {
+      if (integerPart > 0) {
+        result = `${integerPart} ${closestFrac}`;
+      } else {
+        result = closestFrac;
+      }
+    } else {
+      result = Number(abs.toFixed(2)).toString();
+    }
+
+    return `${sign}${result} EV`;
+  }
+
+  function getPixelDims(){
+    if(currentDims) return currentDims;
+    const w = exifData && (exifData.ExifImageWidth || exifData.PixelXDimension || exifData.ImageWidth);
+    const h = exifData && (exifData.ExifImageHeight || exifData.PixelYDimension || exifData.ImageHeight);
+    return (w && h) ? { w, h } : null;
+  }
+
+  function fmtMP(dims){
+    dims = dims || getPixelDims();
+    if(!dims || !dims.w || !dims.h) return null;
+    const mp = (dims.w * dims.h) / 1000000;
+    return (mp >= 100 ? mp.toFixed(0) : mp.toFixed(1)) + ' MP';
+  }
+
+  function fmtISO(iso){
+    if(iso == null) return null;
+    return 'ISO ' + iso;
+  }
+
+  function fmtDate(d){
+    if(!d) return null;
+    try{
+      const dateObj = (d instanceof Date) ? d : new Date(d);
+      if(isNaN(dateObj.getTime())) return String(d);
+      return dateObj.toLocaleString(undefined, { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }catch(e){ return String(d); }
+  }
+
+  function whiteBalanceLabel(wb){
+    if(wb === undefined || wb === null) return null;
+    if(typeof wb === 'string') return wb;
+    const map = {0:'Auto', 1:'Manual'};
+    return map[wb] !== undefined ? map[wb] : String(wb);
+  }
+
+  function valueToDisplay(v){
+    if(v === undefined || v === null) return '';
+    if(v instanceof Date) return v.toISOString();
+    if(Array.isArray(v)){
+      if(v.length && v[0] instanceof Uint8Array) return '[binary array]';
+      return v.map(valueToDisplay).join(', ');
+    }
+    if(v instanceof Uint8Array || v instanceof ArrayBuffer) return '[binary data, ' + (v.byteLength||v.length) + ' bytes]';
+    if(typeof v === 'object'){
+      try{ return JSON.stringify(v); }catch(e){ return String(v); }
+    }
+    return String(v);
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ---------- Landing / input handling ----------
+  const dropzone = $('#dropzone');
+  const fileInput = $('#fileInput');
+
+  $('#browseBtn').addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('keydown', (e) => { if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); fileInput.click(); } });
+
+  ['dragenter','dragover'].forEach(evt => {
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropzone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(evt => {
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('drag'); });
+  });
+  dropzone.addEventListener('drop', (e) => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) handleFile(f);
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if(f) handleFile(f);
+  });
+
+  document.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if(!items) return;
+    for(const item of items){
+      if(item.type && item.type.indexOf('image') !== -1){
+        const f = item.getAsFile();
+        if(f) { handleFile(f); break; }
+      }
+    }
+  });
+
+  $('#loadAnotherBtn').addEventListener('click', resetApp);
+
+  function resetApp(){
+    $('#app').classList.remove('active');
+    $('#landing').style.display = '';
+    $('#topbarActions').style.display = 'none';
+    $('#topbarSub').textContent = 'no image loaded';
+    fileInput.value = '';
+    if(currentObjectUrl){ URL.revokeObjectURL(currentObjectUrl); currentObjectUrl = null; }
+    if(cleanBlobUrl){ URL.revokeObjectURL(cleanBlobUrl); cleanBlobUrl = null; }
+    if(leafletMap){ leafletMap.remove(); leafletMap = null; }
+  }
+
+  // ---------- Main handler ----------
+  async function handleFile(file){
+    if(!file.type || file.type.indexOf('image') === -1){
+      showToast('That file doesn\u2019t look like an image');
+      return;
+    }
+    currentFile = file;
+
+    if(currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+    currentObjectUrl = URL.createObjectURL(file);
+
+    $('#landing').style.display = 'none';
+    $('#app').classList.add('active');
+    $('#topbarActions').style.display = '';
+    $('#topbarSub').textContent = file.name;
+
+    $('#previewImg').src = currentObjectUrl;
+    $('#stripOrigImg').src = currentObjectUrl;
+    $('#fileName').textContent = file.name;
+    $('#fileSize').textContent = fmtBytes(file.size) + ' \u00b7 ' + (file.type || 'unknown type');
+    $('#fileDims').textContent = 'Reading dimensions\u2026';
+
+    currentDims = null;
+    const img = new Image();
+    img.onload = () => {
+      currentDims = { w: img.naturalWidth, h: img.naturalHeight };
+      $('#fileDims').textContent = img.naturalWidth + ' \u00d7 ' + img.naturalHeight + ' px \u00b7 ' + fmtMP(currentDims);
+      renderQuickSpecs();
+      renderOverview();
+    };
+    img.src = currentObjectUrl;
+
+    resetTabs();
+    setLoadingState();
+
+    try{
+      exifData = await exifr.parse(file, {
+        tiff: true, exif: true, gps: true, iptc: true, xmp: true, icc: false,
+        translateKeys: true, translateValues: true, reviveValues: true, mergeOutput: true
+      });
+    }catch(err){
+      console.error('exifr parse error', err);
+      exifData = null;
+    }
+
+    if(!exifData){
+      exifData = {};
+    }
+
+    buildFlatTags();
+    renderQuickSpecs();
+    renderOverview();
+    renderTagsTable();
+    renderRawView();
+    renderCaption();
+    renderGps();
+    renderStripTagList();
+  }
+
+  function setLoadingState(){
+    $('#tagsTableBody').innerHTML = '';
+    $('#rawView').textContent = 'Parsing metadata\u2026';   }    function resetTabs(){     $$('.tab-btn').forEach((b,i)=> b.classList.toggle('active', i===0));
+    $$('.tab-panel').forEach((p,i)=> p.classList.toggle('active', i===0));   }    // ---------- Tabs ----------   $$
+('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $$('.tab-btn').forEach(b=>b.classList.remove('active'));$$
+('.tab-panel').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      $('#tab-' + btn.dataset.tab).classList.add('active');
+      if(btn.dataset.tab === 'strip'){
+        generateCleanPreview();
+      }
+    });
+  });
+
+  // ---------- Flatten tags for table/export ----------
+  function buildFlatTags(){
+    flatTags = [];
+    allTagsForExport = {};
+    if(!exifData) return;
+
+    const gpsKeys = new Set(['latitude','longitude','GPSLatitude','GPSLongitude','GPSAltitude','GPSLatitudeRef','GPSLongitudeRef','GPSTimeStamp','GPSDateStamp','GPSImgDirection','GPSSpeed','GPSVersionID']);
+    const iptcKeys = new Set(['Headline','Caption','Byline','City','Country','Credit','Source','Keywords','CopyrightNotice','ObjectName','SpecialInstructions','Category','SupplementalCategories','Urgency','ProvinceState','CountryCode']);
+    const xmpKeys = new Set(['CreatorTool','Rating','Label','ColorSpace','WebStatement','UsageTerms','Rights']);
+
+    Object.keys(exifData).forEach(key => {
+      let group = 'EXIF';
+      if(gpsKeys.has(key) || key.toLowerCase().startsWith('gps')) group = 'GPS';
+      else if(iptcKeys.has(key)) group = 'IPTC';
+      else if(xmpKeys.has(key) || key.toLowerCase().startsWith('xmp')) group = 'XMP';
+      else if(['Make','Model','Software','Orientation','XResolution','YResolution','ResolutionUnit','ImageWidth','ImageHeight'].includes(key)) group = 'TIFF';
+
+      const value = exifData[key];
+      flatTags.push({ group, key, value: valueToDisplay(value) });
+      allTagsForExport[key] = (value instanceof Date) ? value.toISOString() : value;
+    });
+
+    flatTags.sort((a,b) => a.group.localeCompare(b.group) || a.key.localeCompare(b.key));
+  }
+
+  // ---------- Quick specs (sidebar) ----------
+  function renderQuickSpecs(){
+    const rows = [
+      ['Camera', [exifData.Make, exifData.Model].filter(Boolean).join(' ') || null],
+      ['Resolution', fmtMP()],
+      ['Lens', safe(exifData.LensModel || exifData.LensMake)],
+      ['Focal length', fmtFocal(exifData.FocalLength)],
+      ['Aperture', fmtAperture(exifData.FNumber)],
+      ['Shutter speed', fmtShutter(exifData.ExposureTime)],
+      ['ISO', fmtISO(exifData.ISO)],
+      ['White balance', whiteBalanceLabel(exifData.WhiteBalance)],
+      ['Date taken', fmtDate(exifData.DateTimeOriginal || exifData.CreateDate)],
+    ];
+    $('#quickSpecs').innerHTML = rows.map(([label, val]) => `
+      <div class="spec-row">
+        <span class="label">${escapeHtml(label)}</span>
+        <span class="value ${val ? '' : 'empty'}">${val ? escapeHtml(val) : 'not found'}</span>
+      </div>
+    `).join('');
+  }
+
+  // ---------- Overview cards ----------
+  function renderOverview(){
+    const cards = [
+      ['Make', safe(exifData.Make)],
+      ['Model', safe(exifData.Model)],
+      ['Resolution', fmtMP()],
+      ['Lens', safe(exifData.LensModel)],
+      ['Focal length', fmtFocal(exifData.FocalLength)],
+      ['Aperture', fmtAperture(exifData.FNumber)],
+      ['Shutter speed', fmtShutter(exifData.ExposureTime)],
+      ['ISO', fmtISO(exifData.ISO)],
+      ['White balance', whiteBalanceLabel(exifData.WhiteBalance)],
+      ['Exposure program', safe(exifData.ExposureProgram)],
+      ['Metering mode', safe(exifData.MeteringMode)],
+      ['Flash', safe(exifData.Flash)],
+      ['Exposure bias', fmtExposureBias(exifData.ExposureCompensation)],
+      ['Date taken', fmtDate(exifData.DateTimeOriginal || exifData.CreateDate)],
+      ['Modified', fmtDate(exifData.ModifyDate)],
+      ['Orientation', safe(exifData.Orientation)],
+      ['Color space', safe(exifData.ColorSpace)],
+      ['Software', safe(exifData.Software)],
+      ['Copyright', safe(exifData.Copyright || exifData.CopyrightNotice)],
+      ['Artist', safe(exifData.Artist || exifData.Creator || exifData.Byline)],
+      ['GPS altitude', exifData.GPSAltitude != null ? Math.round(exifData.GPSAltitude) + ' m' : null],
+    ];
+    $('#overviewGrid').innerHTML = cards.map(([label, val]) => `
+      <div class="stat-card">
+        <div class="stat-label">${escapeHtml(label)}</div>
+        <div class="stat-value ${val ? '' : 'empty'}">${val ? escapeHtml(val) : 'not present'}</div>
+      </div>
+    `).join('');
+  }
+
+  // ---------- Full tags table ----------
+  function renderTagsTable(query){
+    const q = (query || '').trim().toLowerCase();
+    const filtered = q ? flatTags.filter(t =>
+      t.key.toLowerCase().includes(q) ||
+      t.group.toLowerCase().includes(q) ||
+      String(t.value).toLowerCase().includes(q)
+    ) : flatTags;
+
+    $('#tagCount').textContent = filtered.length + ' tag' + (filtered.length===1?'':'s');
+    $('#tagsEmpty').style.display = filtered.length ? 'none' : '';
+
+    $('#tagsTableBody').innerHTML = filtered.map(t => `
+      <tr>
+        <td class="group">${escapeHtml(t.group)}</td>
+        <td class="key">${escapeHtml(t.key)}</td>
+        <td class="val">${escapeHtml(t.value)}</td>
+      </tr>
+    `).join('') || '';
+  }
+
+  $('#tagSearch').addEventListener('input', (e) => renderTagsTable(e.target.value));
+
+  // ---------- Raw data view ----------
+  let rawFormat = 'json';
+
+  function syntaxHighlightJson(json){
+    const str = JSON.stringify(json, null, 2);
+    return escapeHtml(str).replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match){
+      let cls = 'json-num';
+      if(/^"/.test(match)){
+        cls = /:$/.test(match) ? 'json-key' : 'json-str';
+      } else if(/true|false/.test(match)){
+        cls = 'json-bool';
+      } else if(/null/.test(match)){
+        cls = 'json-null';
+      }
+      return '<span class="' + cls + '">' + match + '</span>';
+    });
+  }
+
+  function toCsv(obj){
+    const rows = [['group','tag','value']];
+    flatTags.forEach(t => rows.push([t.group, t.key, t.value]));
+    return rows.map(r => r.map(cell => {
+      const s = String(cell == null ? '' : cell).replace(/"/g,'""');
+      return /[",\n]/.test(s) ? '"' + s + '"' : s;
+    }).join(',')).join('\n');
+  }
+
+  function renderRawView(){
+    if(rawFormat === 'json'){
+      $('#rawView').innerHTML = syntaxHighlightJson(allTagsForExport);
+    } else {
+      $('#rawView').textContent = toCsv(allTagsForExport);
+    }
+  }
+
+  $('#fmtJsonBtn').addEventListener('click', () => { rawFormat='json'; $('#fmtJsonBtn').classList.add('active'); $('#fmtCsvBtn').classList.remove('active'); renderRawView(); });
+  $('#fmtCsvBtn').addEventListener('click', () => { rawFormat='csv'; $('#fmtCsvBtn').classList.add('active'); $('#fmtJsonBtn').classList.remove('active'); renderRawView(); });
+
+  $('#copyRawBtn').addEventListener('click', async () => {
+    const text = rawFormat === 'json' ? JSON.stringify(allTagsForExport, null, 2) : toCsv(allTagsForExport);
+    try{ await navigator.clipboard.writeText(text); showToast('Copied ' + rawFormat.toUpperCase() + ' to clipboard'); }
+    catch(e){ showToast('Copy failed \u2014 select and copy manually'); }
+  });
+
+  $('#downloadRawBtn').addEventListener('click', () => {
+    const text = rawFormat === 'json' ? JSON.stringify(allTagsForExport, null, 2) : toCsv(allTagsForExport);
+    const ext = rawFormat === 'json' ? 'json' : 'csv';
+    const mime = rawFormat === 'json' ? 'application/json' : 'text/csv';
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const base = (currentFile ? currentFile.name.replace(/\.[^.]+$/, '') : 'metadata');
+    a.href = url; a.download = base + '-metadata.' + ext;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    showToast('Downloaded ' + rawFormat.toUpperCase());
+  });
+
+  // ---------- Caption generator ----------
+  let captionStyle = 'technical';
+
+  $$('#captionStyles .chip').forEach(chip => {     chip.addEventListener('click', () => {       $$
+('#captionStyles .chip').forEach(c=>c.classList.remove('active'));
+      chip.classList.add('active');
+      captionStyle = chip.dataset.style;
+      renderCaption();
+    });
+  });
+
+  function renderCaption(){
+    const camera = [exifData.Make, exifData.Model].filter(Boolean).join(' ');
+    const lens = exifData.LensModel;
+    const focal = fmtFocal(exifData.FocalLength);
+    const aperture = fmtAperture(exifData.FNumber);
+    const shutter = fmtShutter(exifData.ExposureTime);
+    const iso = exifData.ISO;
+    const date = exifData.DateTimeOriginal || exifData.CreateDate;
+    const place = [exifData.City, exifData.Country].filter(Boolean).join(', ');
+
+    let text = '';
+    const specParts = [focal, aperture, shutter, iso ? 'ISO ' + iso : null].filter(Boolean).join(' \u00b7 ');
+
+    if(captionStyle === 'technical'){
+      text = '\ud83d\udcf8 Shot on ' + (camera || 'unknown camera');
+      if(specParts) text += ' | ' + specParts;
+      if(lens) text += '\n\ud83d\udd0e ' + lens;
+      if(date) text += '\n\ud83d\udcc5 ' + fmtDate(date);
+    } else if(captionStyle === 'minimal'){
+      text = [camera, specParts].filter(Boolean).join(' \u2014 ');
+      if(!text) text = 'Captured on an unknown device';
+    } else if(captionStyle === 'story'){
+      text = 'Captured' + (place ? ' in ' + place : '') + (date ? ' on ' + fmtDate(date) : '') + '.';
+      if(camera) text += '\nShot on a ' + camera + (lens ? ' with a ' + lens : '') + '.';
+      if(specParts) text += '\nSettings: ' + specParts + '.';
+    } else if(captionStyle === 'hashtag'){
+      const tags = new Set();
+      if(exifData.Make) tags.add('#' + String(exifData.Make).replace(/\s+/g,''));
+      if(exifData.Model) tags.add('#' + String(exifData.Model).replace(/\s+/g,''));
+      tags.add('#photography'); tags.add('#exif'); tags.add('#shotwith' + (exifData.Make ? String(exifData.Make).replace(/\s+/g,'') : 'camera'));
+      if(iso) tags.add('#ISO' + iso);
+      text = (specParts ? specParts + '\n' : '') + Array.from(tags).join(' ');
+    }
+
+    $('#captionOutput').textContent = text || 'No metadata available to build a caption \u2014 try another image.';
+  }
+
+  $('#copyCaptionBtn').addEventListener('click', async () => {
+    const text = $('#captionOutput').textContent;
+    try{ await navigator.clipboard.writeText(text); showToast('Caption copied'); }
+    catch(e){ showToast('Copy failed \u2014 select and copy manually'); }
+  });
+
+  // ---------- GPS / Map ----------
+  function renderGps(){
+    const lat = exifData.latitude != null ? exifData.latitude : exifData.GPSLatitude;
+    const lng = exifData.longitude != null ? exifData.longitude : exifData.GPSLongitude;
+
+    if(typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)){
+      gps = null;
+      $('#mapContainer').innerHTML = `
+        <div class="no-gps" id="noGps">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 21s-7-6.2-7-11.2A7 7 0 0 1 19 9.8C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.2"/></svg><br>
+          No GPS data embedded in this image
+        </div>`;
+      return;
+    }
+
+    gps = { lat, lng };
+    $('#mapContainer').innerHTML = `
+      <div id="map" role="img" aria-label="Map showing photo location"></div>
+      <div class="map-links">
+        <a id="gmapsLink" target="_blank" rel="noopener">Open in Google Maps</a>
+        <a id="osmLink" target="_blank" rel="noopener">Open in OpenStreetMap</a>
+      </div>
+    `;
+    $('#gmapsLink').href = 'https://www.google.com/maps?q=' + lat + ',' + lng;
+    $('#osmLink').href = 'https://www.openstreetmap.org/?mlat=' + lat + '&mlon=' + lng + '#map=15/' + lat + '/' + lng;
+
+    setTimeout(() => {
+      if(leafletMap){ leafletMap.remove(); leafletMap = null; }
+      leafletMap = L.map('map', { attributionControl: true, zoomControl: true }).setView([lat, lng], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(leafletMap);
+      L.marker([lat, lng]).addTo(leafletMap);
+    }, 30);
+  }
+
+  // ---------- Privacy stripper ----------
+  function renderStripTagList(){
+    const groups = {};
+    flatTags.forEach(t => { groups[t.group] = (groups[t.group]||0) + 1; });
+    const parts = Object.keys(groups).map(g => `<span class="removed">${escapeHtml(g)} (${groups[g]})</span>`);
+    $('#stripTagList').innerHTML = parts.length ? 'Embedded: ' + parts.join(', ') : 'No metadata detected in this file.';
+  }
+
+  $('#stripFormat').addEventListener('change', () => {
+    $('#qualityRow').style.display = $('#stripFormat').value === 'image/png' ? 'none' : '';
+    generateCleanPreview();
+  });
+  $('#stripQuality').addEventListener('input', () => {
+    $('#qualityVal').textContent = Math.round($('#stripQuality').value*100) + '%';
+  });
+  $('#stripQuality').addEventListener('change', generateCleanPreview);
+
+  function stripToBlob(){
+    return new Promise((resolve, reject) => {
+      if(!currentFile){ reject(new Error('no file')); return; }
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const format = $('#stripFormat').value;
+        const quality = parseFloat($('#stripQuality').value);
+        canvas.toBlob(blob => {
+          if(blob) resolve(blob); else reject(new Error('canvas export failed'));
+        }, format, format === 'image/png' ? undefined : quality);
+      };
+      img.onerror = reject;
+      img.src = currentObjectUrl;
+    });
+  }
+
+  let generatingPreview = false;
+  async function generateCleanPreview(){
+    if(!currentFile || generatingPreview) return;
+    generatingPreview = true;
+    try{
+      const blob = await stripToBlob();
+      if(cleanBlobUrl) URL.revokeObjectURL(cleanBlobUrl);
+      cleanBlobUrl = URL.createObjectURL(blob);
+      $('#stripCleanImg').src = cleanBlobUrl;
+    }catch(e){
+      console.error(e);
+    } finally {
+      generatingPreview = false;
+    }
+  }
+
+  $('#stripDownloadBtn').addEventListener('click', async () => {
+    $('#stripDownloadBtn').disabled = true;
+    try{
+      const blob = await stripToBlob();
+      const format = $('#stripFormat').value;
+      const ext = format === 'image/png' ? 'png' : (format === 'image/webp' ? 'webp' : 'jpg');
+      const base = currentFile ? currentFile.name.replace(/\.[^.]+$/, '') : 'image';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = base + '-clean.' + ext;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      $('#stripStatus').textContent = 'Downloaded a clean copy (' + fmtBytes(blob.size) + ') with all metadata removed.';
+      $('#stripStatus').classList.add('show');
+      showToast('Clean image downloaded');
+    }catch(e){
+      console.error(e);
+      showToast('Could not export image');
+    } finally {
+      $('#stripDownloadBtn').disabled = false;
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
